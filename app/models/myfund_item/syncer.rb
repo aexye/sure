@@ -37,7 +37,6 @@ class MyfundItem::Syncer
       portfolio_value = portfolio_data["wartosc"]&.to_d || 0
       currency = portfolio_data["waluta"] || "PLN"
 
-      # Use stored account reference if available
       account = myfund_item.account
 
       if account.nil?
@@ -58,6 +57,7 @@ class MyfundItem::Syncer
         account.update!(balance: portfolio_value, currency: currency)
       end
 
+      ensure_account_provider(account)
       account
     end
 
@@ -65,12 +65,11 @@ class MyfundItem::Syncer
       tickers_data = data["tickers"]
       return if tickers_data.blank?
 
-      # API returns a Hash keyed by index strings ("1", "2", ...), not an Array
       ticker_entries = tickers_data.is_a?(Hash) ? tickers_data.values : Array(tickers_data)
       today = Date.current
+      ap_id = account.account_providers.find_by(provider: myfund_item)&.id
 
       ticker_entries.each do |ticker_data|
-        # Skip cash/account entries
         next if ticker_data["typ"] == "Accounts"
 
         ticker_symbol = ticker_data["tickerClear"]&.upcase
@@ -95,7 +94,8 @@ class MyfundItem::Syncer
         holding.assign_attributes(
           qty: qty,
           price: price,
-          amount: amount
+          amount: amount,
+          account_provider_id: ap_id
         )
 
         holding.save!
@@ -142,5 +142,13 @@ class MyfundItem::Syncer
       Date.parse(date_str)
     rescue Date::Error
       nil
+    end
+
+    def ensure_account_provider(account)
+      AccountProvider.find_or_create_by!(
+        account: account,
+        provider_type: "MyfundItem",
+        provider_id: myfund_item.id
+      )
     end
 end
