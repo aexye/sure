@@ -72,7 +72,7 @@ class MyfundItem::Syncer
       ticker_entries.each do |ticker_data|
         next if ticker_data["typ"] == "Accounts"
 
-        ticker_symbol = ticker_data["tickerClear"]&.upcase
+        ticker_symbol = normalize_ticker(ticker_data["tickerClear"])
         next if ticker_symbol.blank?
 
         security = Security.find_or_create_by!(ticker: ticker_symbol) do |s|
@@ -82,6 +82,7 @@ class MyfundItem::Syncer
         qty = ticker_data["liczbaJednostek"]&.to_d || 0
         price = ticker_data["close"]&.to_d || 0
         amount = ticker_data["wartosc"]&.to_d || (qty * price)
+        cost_basis = ticker_data["cenaZakupu"]&.to_d
 
         next if qty.zero?
 
@@ -91,13 +92,15 @@ class MyfundItem::Syncer
           currency: account.currency
         )
 
-        holding.assign_attributes(
+        attrs = {
           qty: qty,
           price: price,
           amount: amount,
           account_provider_id: ap_id
-        )
+        }
+        attrs[:cost_basis] = cost_basis if cost_basis&.positive?
 
+        holding.assign_attributes(attrs)
         holding.save!
       end
     end
@@ -142,6 +145,13 @@ class MyfundItem::Syncer
       Date.parse(date_str)
     rescue Date::Error
       nil
+    end
+
+    EXCHANGE_PREFIX = /\A(LSE|BORSE|NYSE|EURONEXT|NASDAQ|OSP|AMEX|TSE|ASX|HKEX)_/i
+
+    def normalize_ticker(raw)
+      return nil if raw.blank?
+      raw.upcase.sub(EXCHANGE_PREFIX, "")
     end
 
     def ensure_account_provider(account)
