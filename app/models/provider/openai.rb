@@ -532,11 +532,9 @@ class Provider::Openai < Provider
           }
         end
 
-        payload << {
-          role: "assistant",
-          content: "",  # Some OpenAI-compatible APIs require string, not null
-          tool_calls: tool_calls
-        }
+        assistant_msg = { role: "assistant", tool_calls: tool_calls }
+        assistant_msg[:content] = "" unless custom_provider?
+        payload << assistant_msg
 
         # Add function results as tool messages
         function_results.each do |fn_result|
@@ -552,12 +550,13 @@ class Provider::Openai < Provider
             output.to_json
           end
 
-          payload << {
+          tool_msg = {
             role: "tool",
             tool_call_id: fn_result[:call_id],
-            name: fn_result[:name],
             content: content
           }
+          tool_msg[:name] = fn_result[:name] unless custom_provider?
+          payload << tool_msg
         end
       end
 
@@ -568,15 +567,13 @@ class Provider::Openai < Provider
       return [] if functions.blank?
 
       functions.map do |fn|
-        {
-          type: "function",
-          function: {
-            name: fn[:name],
-            description: fn[:description],
-            parameters: fn[:params_schema],
-            strict: fn[:strict]
-          }
+        tool_fn = {
+          name: fn[:name],
+          description: fn[:description],
+          parameters: fn[:params_schema]
         }
+        tool_fn[:strict] = fn[:strict] unless custom_provider?
+        { type: "function", function: tool_fn.compact }
       end
     end
 
