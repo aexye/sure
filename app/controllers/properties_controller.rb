@@ -47,7 +47,13 @@ class PropertiesController < ApplicationController
       if @account.active?
         render :balances
       else
-        redirect_to address_property_path(@account)
+        respond_to do |format|
+          format.html { redirect_to address_property_path(@account) }
+          format.turbo_stream do
+            @property.address ||= Address.new
+            render :address
+          end
+        end
       end
     else
       @error_message = result.error_message
