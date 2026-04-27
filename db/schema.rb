@@ -978,6 +978,22 @@ ActiveRecord::Schema[7.2].define(version: 2026_04_12_120000) do
     t.index ["status"], name: "index_mercury_items_on_status"
   end
 
+  create_table "myfund_items", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "family_id", null: false
+    t.string "name", default: "myFund.pl", null: false
+    t.string "api_key", null: false
+    t.string "portfolio_name", null: false
+    t.string "status", default: "good", null: false
+    t.datetime "last_synced_at"
+    t.uuid "account_id"
+    t.boolean "scheduled_for_deletion", default: false, null: false
+    t.text "raw_payload"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_myfund_items_on_account_id"
+    t.index ["family_id"], name: "index_myfund_items_on_family_id"
+  end
+
   create_table "messages", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.uuid "chat_id", null: false
     t.string "type", null: false
@@ -1688,6 +1704,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_04_12_120000) do
   add_foreign_key "merchants", "families"
   add_foreign_key "mercury_accounts", "mercury_items"
   add_foreign_key "mercury_items", "families"
+  add_foreign_key "myfund_items", "accounts"
+  add_foreign_key "myfund_items", "families"
   add_foreign_key "messages", "chats"
   add_foreign_key "mobile_devices", "users"
   add_foreign_key "oauth_access_grants", "oauth_applications", column: "application_id"
