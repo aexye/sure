@@ -171,6 +171,8 @@ class Holding::Materializer
     end
 
     def purge_stale_holdings
+      return if myfund_account?
+
       portfolio_security_ids = account.entries.trades.map { |entry| entry.entryable.security_id }.uniq
 
       # Never delete provider-sourced holdings - they're authoritative from the provider
@@ -194,5 +196,9 @@ class Holding::Materializer
       else
         Holding::ForwardCalculator.new(account, security_ids: security_ids)
       end
+    end
+
+    def myfund_account?
+      MyfundItem.exists?(account_id: account.id)
     end
 end

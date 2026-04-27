@@ -57,7 +57,6 @@ class MyfundItem::Syncer
         account.update!(balance: portfolio_value, currency: currency)
       end
 
-      ensure_account_provider(account)
       account
     end
 
@@ -67,7 +66,6 @@ class MyfundItem::Syncer
 
       ticker_entries = tickers_data.is_a?(Hash) ? tickers_data.values : Array(tickers_data)
       today = Date.current
-      ap_id = account.account_providers.find_by(provider: myfund_item)&.id
 
       ticker_entries.each do |ticker_data|
         next if ticker_data["typ"] == "Accounts"
@@ -92,12 +90,7 @@ class MyfundItem::Syncer
           currency: account.currency
         )
 
-        attrs = {
-          qty: qty,
-          price: price,
-          amount: amount,
-          account_provider_id: ap_id
-        }
+        attrs = { qty: qty, price: price, amount: amount }
         attrs[:cost_basis] = cost_basis if cost_basis&.positive?
 
         holding.assign_attributes(attrs)
@@ -109,12 +102,10 @@ class MyfundItem::Syncer
       values_over_time = data["wartoscWCzasie"]
       return if values_over_time.blank?
 
-      # Get existing valuation dates to avoid duplicates
       existing_dates = account.entries.where(entryable_type: "Valuation")
                               .pluck(:date)
                               .to_set
 
-      # API returns a Hash keyed by date strings ("2024-10-01" => "14043.03"), not an Array
       entries_to_process = if values_over_time.is_a?(Hash)
         values_over_time.map { |date_str, val| { "data" => date_str, "wartosc" => val } }
       else
@@ -152,13 +143,5 @@ class MyfundItem::Syncer
     def normalize_ticker(raw)
       return nil if raw.blank?
       raw.upcase.sub(EXCHANGE_PREFIX, "")
-    end
-
-    def ensure_account_provider(account)
-      AccountProvider.find_or_create_by!(
-        account: account,
-        provider_type: "MyfundItem",
-        provider_id: myfund_item.id
-      )
     end
 end
