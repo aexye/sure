@@ -18,7 +18,11 @@ class Family::Syncer
     coinstats_items
     mercury_items
     snaptrade_items
+<<<<<<< HEAD
     myfund_items
+=======
+    sophtron_items
+>>>>>>> upstream/main
   ].freeze
 
   def initialize(family)

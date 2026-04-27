@@ -26,9 +26,9 @@ class Chat < ApplicationRecord
     end
 
     # Returns the default AI model to use for chats
-    # Priority: ENV variable > Setting > OpenAI default
+    # Priority: AI Config > Setting
     def default_model
-      ENV["OPENAI_MODEL"].presence || Setting.openai_model.presence || Provider::Openai::DEFAULT_MODEL
+      Provider::Openai.effective_model.presence || Setting.openai_model
     end
   end
 
@@ -75,10 +75,6 @@ class Chat < ApplicationRecord
   end
 
   def conversation_messages
-    if debug_mode?
-      messages
-    else
-      messages.where(type: [ "UserMessage", "AssistantMessage" ])
-    end
+    messages.where(type: [ "UserMessage", "AssistantMessage" ])
   end
 end

@@ -6,7 +6,7 @@ class Settings::BankSyncController < ApplicationController
       {
         name: "Lunch Flow",
         description: "US, Canada, UK, EU, Brazil and Asia through multiple open banking providers.",
-        path: "https://lunchflow.app/features/sure-integration",
+        path: "https://lunchflow.app/features/sure-integration?atp=BiDIYS",
         target: "_blank",
         rel: "noopener noreferrer"
       },
@@ -28,6 +28,13 @@ class Settings::BankSyncController < ApplicationController
         name: "Enable Banking (beta)",
         description: "European bank connections via open banking APIs across multiple countries.",
         path: "https://enablebanking.com",
+        target: "_blank",
+        rel: "noopener noreferrer"
+      },
+      {
+        name: "Sophtron (alpha)",
+        description: "US & Canada bank, credit card, investment, loan, insurance, utility, and other connections.",
+        path: "https://www.sophtron.com/",
         target: "_blank",
         rel: "noopener noreferrer"
       }

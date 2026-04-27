@@ -11,8 +11,13 @@ class ChatProvider with ChangeNotifier {
   Chat? _currentChat;
   bool _isLoading = false;
   bool _isSendingMessage = false;
+  bool _isWaitingForResponse = false;
   String? _errorMessage;
   Timer? _pollingTimer;
+  DateTime? _pollingStartTime;
+  bool _isPollingRequestInFlight = false;
+
+  static const _pollingTimeout = Duration(seconds: 20);
 
   /// Content length of the last assistant message from the previous poll.
   /// Used to detect when the LLM has finished writing (no growth between polls).
@@ -22,6 +27,8 @@ class ChatProvider with ChangeNotifier {
   Chat? get currentChat => _currentChat;
   bool get isLoading => _isLoading;
   bool get isSendingMessage => _isSendingMessage;
+  bool get isWaitingForResponse => _isWaitingForResponse;
+  bool get isPolling => _pollingTimer != null;
   String? get errorMessage => _errorMessage;
 
   /// Fetch list of chats
@@ -103,18 +110,31 @@ class ChatProvider with ChangeNotifier {
 
       if (result['success'] == true) {
         final chat = result['chat'] as Chat;
-        _currentChat = chat;
-        _chats.insert(0, chat);
         _errorMessage = null;
 
-        // Start polling for AI response if initial message was sent
         if (initialMessage != null) {
+          // Inject the user message locally so the UI renders it immediately
+          // without waiting for the first poll.
+          final now = DateTime.now();
+          final userMessage = Message(
+            id: 'pending_${now.millisecondsSinceEpoch}',
+            type: 'text',
+            role: 'user',
+            content: initialMessage,
+            createdAt: now,
+            updatedAt: now,
+          );
+          _currentChat = chat.copyWith(messages: [userMessage]);
+          _chats.insert(0, _currentChat!);
           _startPolling(accessToken, chat.id);
+        } else {
+          _currentChat = chat;
+          _chats.insert(0, chat);
         }
 
         _isLoading = false;
         notifyListeners();
-        return chat;
+        return _currentChat!;
       } else {
         _errorMessage = result['error'] ?? 'Failed to create chat';
         _isLoading = false;
@@ -244,11 +264,20 @@ class ChatProvider with ChangeNotifier {
 
   /// Start polling for new messages (AI responses)
   void _startPolling(String accessToken, String chatId) {
-    _stopPolling();
+    _pollingTimer?.cancel();
     _lastAssistantContentLength = null;
+    _isWaitingForResponse = true;
+    _pollingStartTime = DateTime.now();
+    notifyListeners();
 
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
-      await _pollForUpdates(accessToken, chatId);
+      if (_isPollingRequestInFlight) return;
+      _isPollingRequestInFlight = true;
+      try {
+        await _pollForUpdates(accessToken, chatId);
+      } finally {
+        _isPollingRequestInFlight = false;
+      }
     });
   }
 
@@ -256,6 +285,10 @@ class ChatProvider with ChangeNotifier {
   void _stopPolling() {
     _pollingTimer?.cancel();
     _pollingTimer = null;
+    _pollingStartTime = null;
+    _isPollingRequestInFlight = false;
+    _isWaitingForResponse = false;
+    _lastAssistantContentLength = null;
   }
 
   /// Poll for updates
@@ -302,23 +335,51 @@ class ChatProvider with ChangeNotifier {
 
         if (shouldUpdate) {
           _currentChat = updatedChat;
+          // Hide thinking indicator as soon as the first assistant content arrives.
+          if (_isWaitingForResponse) {
+            final lastMsg = updatedChat.messages.lastOrNull;
+            if (lastMsg != null && lastMsg.isAssistant && lastMsg.content.isNotEmpty) {
+              _isWaitingForResponse = false;
+            }
+          }
           notifyListeners();
         }
 
         final lastMessage = updatedChat.messages.lastOrNull;
         if (lastMessage != null && lastMessage.isAssistant) {
           final newLen = lastMessage.content.length;
-          if (newLen > (_lastAssistantContentLength ?? 0)) {
+          final previousLen = _lastAssistantContentLength;
+
+          if (newLen > (previousLen ?? -1)) {
             _lastAssistantContentLength = newLen;
-          } else {
-            // Content stable: no growth since last poll
+            if (newLen > 0) {
+              // Content is growing — reset the inactivity clock.
+              _pollingStartTime = DateTime.now();
+              return; // progress made, don't evaluate timeout this tick
+            }
+            // newLen == 0: empty placeholder, keep polling
+          } else if (newLen > 0) {
+            // Content stable and non-empty: no growth since last poll — done.
             _stopPolling();
             _lastAssistantContentLength = null;
+            notifyListeners();
+            return;
           }
+          // newLen == 0 with previousLen already 0: still empty, keep polling
         }
       }
     } catch (e) {
+      // Network error — allow polling to continue; timeout check below will
+      // stop it if the deadline has passed.
       debugPrint('Polling error: ${e.toString()}');
+    }
+
+    // Evaluate timeout only after the attempt, and only when no progress was made.
+    if (_pollingStartTime != null &&
+        DateTime.now().difference(_pollingStartTime!) >= _pollingTimeout) {
+      _stopPolling();
+      _errorMessage = 'The assistant took too long to respond. Please try again.';
+      notifyListeners();
     }
   }
 

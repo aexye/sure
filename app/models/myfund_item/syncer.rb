@@ -62,20 +62,26 @@ class MyfundItem::Syncer
     end
 
     def sync_holdings(account, data)
-      tickers = data["tickers"] || []
+      tickers_data = data["tickers"]
+      return if tickers_data.blank?
+
+      # API returns a Hash keyed by index strings ("1", "2", ...), not an Array
+      ticker_entries = tickers_data.is_a?(Hash) ? tickers_data.values : Array(tickers_data)
       today = Date.current
 
-      tickers.each do |ticker_data|
-        ticker_symbol = ticker_data["ticker"]&.upcase
+      ticker_entries.each do |ticker_data|
+        # Skip cash/account entries
+        next if ticker_data["typ"] == "Accounts"
+
+        ticker_symbol = ticker_data["tickerClear"]&.upcase
         next if ticker_symbol.blank?
 
         security = Security.find_or_create_by!(ticker: ticker_symbol) do |s|
           s.name = ticker_data["nazwa"]
-          s.exchange_operating_mic = "XWAR" # Warsaw Stock Exchange
         end
 
-        qty = ticker_data["ilosc"]&.to_d || 0
-        price = ticker_data["kurs"]&.to_d || 0
+        qty = ticker_data["liczbaJednostek"]&.to_d || 0
+        price = ticker_data["close"]&.to_d || 0
         amount = ticker_data["wartosc"]&.to_d || (qty * price)
 
         next if qty.zero?
@@ -105,7 +111,14 @@ class MyfundItem::Syncer
                               .pluck(:date)
                               .to_set
 
-      values_over_time.each do |entry|
+      # API returns a Hash keyed by date strings ("2024-10-01" => "14043.03"), not an Array
+      entries_to_process = if values_over_time.is_a?(Hash)
+        values_over_time.map { |date_str, val| { "data" => date_str, "wartosc" => val } }
+      else
+        Array(values_over_time)
+      end
+
+      entries_to_process.each do |entry|
         date = parse_date(entry["data"] || entry["date"])
         next if date.nil?
         next if existing_dates.include?(date)

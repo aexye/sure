@@ -238,6 +238,89 @@ class UserTest < ActiveSupport::TestCase
     assert user.show_ai_sidebar?
   end
 
+  test "new member defaults show_ai_sidebar to false when AI is not available" do
+    Rails.application.config.app_mode.stubs(:self_hosted?).returns(true)
+    previous = Setting.openai_access_token
+    with_env_overrides OPENAI_ACCESS_TOKEN: nil, EXTERNAL_ASSISTANT_URL: nil, EXTERNAL_ASSISTANT_TOKEN: nil do
+      Setting.openai_access_token = nil
+      user = User.new(
+        family: families(:empty),
+        email: "member-no-ai@example.com",
+        password: "Password1!",
+        password_confirmation: "Password1!",
+        role: :member
+      )
+      assert user.save, user.errors.full_messages.to_sentence
+      assert_not user.show_ai_sidebar?
+    end
+  ensure
+    Setting.openai_access_token = previous
+  end
+
+  test "new admin defaults show_ai_sidebar to true even when AI is not available" do
+    Rails.application.config.app_mode.stubs(:self_hosted?).returns(true)
+    previous = Setting.openai_access_token
+    with_env_overrides OPENAI_ACCESS_TOKEN: nil, EXTERNAL_ASSISTANT_URL: nil, EXTERNAL_ASSISTANT_TOKEN: nil do
+      Setting.openai_access_token = nil
+      user = User.new(
+        family: families(:empty),
+        email: "admin-no-ai@example.com",
+        password: "Password1!",
+        password_confirmation: "Password1!",
+        role: :admin
+      )
+      assert user.save, user.errors.full_messages.to_sentence
+      assert user.show_ai_sidebar?
+    end
+  ensure
+    Setting.openai_access_token = previous
+  end
+
+  test "new member defaults show_ai_sidebar to true when AI is available" do
+    Rails.application.config.app_mode.stubs(:self_hosted?).returns(false)
+    user = User.new(
+      family: families(:empty),
+      email: "member-with-ai@example.com",
+      password: "Password1!",
+      password_confirmation: "Password1!",
+      role: :member
+    )
+    assert user.save, user.errors.full_messages.to_sentence
+    assert user.show_ai_sidebar?
+  end
+
+  test "new guest defaults show_ai_sidebar to false when AI is not available" do
+    Rails.application.config.app_mode.stubs(:self_hosted?).returns(true)
+    previous = Setting.openai_access_token
+    with_env_overrides OPENAI_ACCESS_TOKEN: nil, EXTERNAL_ASSISTANT_URL: nil, EXTERNAL_ASSISTANT_TOKEN: nil do
+      Setting.openai_access_token = nil
+      user = User.new(
+        family: families(:empty),
+        email: "guest-no-ai@example.com",
+        password: "Password1!",
+        password_confirmation: "Password1!",
+        role: :guest
+      )
+      assert user.save, user.errors.full_messages.to_sentence
+      assert_not user.show_ai_sidebar?
+    end
+  ensure
+    Setting.openai_access_token = previous
+  end
+
+  test "new guest defaults show_ai_sidebar to false when AI is available" do
+    Rails.application.config.app_mode.stubs(:self_hosted?).returns(false)
+    user = User.new(
+      family: families(:empty),
+      email: "guest-with-ai@example.com",
+      password: "Password1!",
+      password_confirmation: "Password1!",
+      role: :guest
+    )
+    assert user.save, user.errors.full_messages.to_sentence
+    assert_not user.show_ai_sidebar?
+  end
+
   test "update_dashboard_preferences handles concurrent updates atomically" do
     @user.update!(preferences: {})
 
@@ -360,6 +443,33 @@ class UserTest < ActiveSupport::TestCase
     @user.update!(preferences: { "collapsed_sections" => {} })
     assert_not @user.dashboard_section_collapsed?("net_worth_chart"),
       "Should return false when section key is missing from collapsed_sections"
+  end
+
+  # Default account for transactions
+  test "default_account_for_transactions returns account when active and manual" do
+    account = accounts(:depository)
+    @user.update!(default_account: account)
+    assert_equal account, @user.default_account_for_transactions
+  end
+
+  test "default_account_for_transactions returns nil when account is disabled" do
+    account = accounts(:depository)
+    @user.update!(default_account: account)
+    account.disable!
+    assert_nil @user.default_account_for_transactions
+  end
+
+  test "default_account_for_transactions returns nil when account is linked" do
+    account = accounts(:depository)
+    @user.update!(default_account: account)
+    plaid_account = plaid_accounts(:one)
+    AccountProvider.create!(account: account, provider: plaid_account)
+    account.reload
+    assert_nil @user.default_account_for_transactions
+  end
+
+  test "default_account_for_transactions returns nil when no default set" do
+    assert_nil @user.default_account_for_transactions
   end
 
   # SSO-only user security tests

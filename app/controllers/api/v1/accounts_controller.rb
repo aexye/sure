@@ -9,7 +9,7 @@ class Api::V1::AccountsController < Api::V1::BaseController
   def index
     # Test with Pagy pagination
     family = current_resource_owner.family
-    accounts_query = family.accounts.visible.alphabetically
+    accounts_query = family.accounts.accessible_by(current_resource_owner).visible.alphabetically
 
     # Handle pagination with Pagy
     @pagy, @accounts = pagy(
@@ -28,7 +28,7 @@ class Api::V1::AccountsController < Api::V1::BaseController
 
     render json: {
       error: "internal_server_error",
-      message: "Error: #{e.message}"
+      message: "An unexpected error occurred"
     }, status: :internal_server_error
 end
 

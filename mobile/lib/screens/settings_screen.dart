@@ -3,10 +3,14 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../providers/auth_provider.dart';
+import '../providers/categories_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/offline_storage_service.dart';
 import '../services/log_service.dart';
+import '../services/biometric_service.dart';
 import '../services/preferences_service.dart';
 import '../services/user_service.dart';
+import 'log_viewer_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -20,12 +24,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _appVersion;
   bool _isResettingAccount = false;
   bool _isDeletingAccount = false;
+  bool _biometricSupported = false;
+  bool _biometricEnabled = false;
+  bool _isTogglingBiometric = false;
 
   @override
   void initState() {
     super.initState();
     _loadPreferences();
     _loadAppVersion();
+    _loadBiometricState();
+  }
+
+  Future<void> _loadBiometricState() async {
+    final supported = await BiometricService.instance.isDeviceSupported();
+    final enabled = await PreferencesService.instance.getBiometricEnabled();
+    if (!supported && enabled) {
+      await PreferencesService.instance.setBiometricEnabled(false);
+    }
+    if (mounted) {
+      setState(() {
+        _biometricSupported = supported;
+        _biometricEnabled = supported && enabled;
+      });
+    }
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    if (_isTogglingBiometric) return;
+    setState(() => _isTogglingBiometric = true);
+    try {
+      if (value) {
+        final success = await BiometricService.instance.authenticate(
+          reason: 'Verify biometric to enable app lock',
+        );
+        if (!mounted) return;
+        if (!success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Biometric authentication failed.')),
+          );
+          return;
+        }
+      }
+      await PreferencesService.instance.setBiometricEnabled(value);
+      if (mounted) setState(() => _biometricEnabled = value);
+    } finally {
+      if (mounted) setState(() => _isTogglingBiometric = false);
+    }
   }
 
   Future<void> _loadAppVersion() async {
@@ -40,10 +85,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadPreferences() async {
-    final value = await PreferencesService.instance.getGroupByType();
+    final groupByType = await PreferencesService.instance.getGroupByType();
     if (mounted) {
       setState(() {
-        _groupByType = value;
+        _groupByType = groupByType;
       });
     }
   }
@@ -81,6 +126,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         log.info('Settings', 'Clearing all local data...');
         await offlineStorage.clearAllData();
+        if (context.mounted) {
+          Provider.of<CategoriesProvider>(context, listen: false).clear();
+        }
         log.info('Settings', 'Local data cleared successfully');
 
         if (context.mounted) {
@@ -162,6 +210,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (result['success'] == true) {
         await OfflineStorageService().clearAllData();
+        if (context.mounted) {
+          Provider.of<CategoriesProvider>(context, listen: false).clear();
+        }
 
         if (!context.mounted) return;
 
@@ -354,6 +405,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => _launchContactUrl(context),
           ),
 
+          Semantics(
+            label: 'Open debug logs',
+            button: true,
+            child: ListTile(
+              leading: const Icon(Icons.bug_report),
+              title: const Text('Debug Logs'),
+              subtitle: const Text('View app diagnostic logs'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LogViewerScreen()),
+                );
+              },
+            ),
+          ),
+
           const Divider(),
 
           // Display Settings Section
@@ -382,6 +449,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
 
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, _) {
+              return ListTile(
+                leading: const Icon(Icons.brightness_6_outlined),
+                title: const Text('Theme'),
+                trailing: SegmentedButton<ThemeMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ThemeMode.light,
+                      icon: Icon(Icons.light_mode, size: 18),
+                      tooltip: 'Light',
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.system,
+                      icon: Icon(Icons.brightness_auto, size: 18),
+                      tooltip: 'System',
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.dark,
+                      icon: Icon(Icons.dark_mode, size: 18),
+                      tooltip: 'Dark',
+                    ),
+                  ],
+                  selected: {themeProvider.themeMode},
+                  onSelectionChanged: (modes) => themeProvider.setThemeMode(modes.first),
+                  showSelectedIcon: false,
+                ),
+              );
+            },
+          ),
+
           const Divider(),
 
           // Data Management Section
@@ -404,6 +502,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Remove all cached transactions and accounts'),
             onTap: () => _handleClearLocalData(context),
           ),
+
+          if (_biometricSupported) ...[
+            const Divider(),
+
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text(
+                'Security',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
+            ),
+
+            SwitchListTile(
+              secondary: const Icon(Icons.fingerprint),
+              title: const Text('Biometric Lock'),
+              subtitle: const Text('Require biometric authentication when resuming the app'),
+              value: _biometricEnabled,
+              onChanged: _isTogglingBiometric ? null : _toggleBiometric,
+            ),
+          ],
 
           const Divider(),
 

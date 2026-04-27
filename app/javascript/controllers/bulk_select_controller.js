@@ -8,6 +8,7 @@ export default class extends Controller {
     "selectionBar",
     "selectionBarText",
     "bulkEditDrawerHeader",
+    "duplicateLink",
   ];
   static values = {
     singularLabel: String,
@@ -135,6 +136,23 @@ export default class extends Controller {
     this.selectionBarTarget.classList.toggle("hidden", count === 0);
     this.selectionBarTarget.querySelector("input[type='checkbox']").checked =
       count > 0;
+
+    if (this.hasDuplicateLinkTarget) {
+      const selectedRow = this._selectedRow();
+      const canDuplicate =
+        count === 1 && selectedRow?.dataset.entryType === "Transaction";
+
+      this.duplicateLinkTarget.classList.toggle("hidden", !canDuplicate);
+
+      if (canDuplicate) {
+        const url = new URL(
+          this.duplicateLinkTarget.href,
+          window.location.origin,
+        );
+        url.searchParams.set("duplicate_entry_id", this.selectedIdsValue[0]);
+        this.duplicateLinkTarget.href = url.toString();
+      }
+    }
   }
 
   _pluralizedResourceName() {
@@ -143,6 +161,14 @@ export default class extends Controller {
     }
 
     return this.pluralLabelValue;
+  }
+
+  _selectedRow() {
+    if (this.selectedIdsValue.length !== 1) return null;
+
+    return this.rowTargets.find(
+      (row) => row.dataset.id === this.selectedIdsValue[0],
+    );
   }
 
   _updateGroups() {

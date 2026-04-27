@@ -13,7 +13,5 @@ class CreateMyfundItems < ActiveRecord::Migration[7.2]
 
       t.timestamps
     end
-
-    add_index :myfund_items, :family_id
   end
 end
