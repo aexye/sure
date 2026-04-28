@@ -23,11 +23,11 @@ class Provider::EnableBankingTest < ActiveSupport::TestCase
     }.to_json
 
     stub_request(:get, url)
-      .with(query: { date_from: "2026-04-01", transaction_status: "BOOK", continuation_key: "next_page" })
+      .with(query: { date_from: "2026-04-01", transaction_status: "BOOK", continuation_key: "next_page", strategy: "longest" })
       .to_return(status: 422, body: error_body, headers: { "Content-Type" => "application/json" })
 
     stub_request(:get, url)
-      .with(query: { transaction_status: "BOOK", continuation_key: "next_page" })
+      .with(query: { transaction_status: "BOOK", continuation_key: "next_page", strategy: "longest" })
       .to_return(
         status: 200,
         body: { transactions: [ { entry_reference: "tx_1" } ], continuation_key: nil }.to_json,
@@ -53,11 +53,11 @@ class Provider::EnableBankingTest < ActiveSupport::TestCase
     }.to_json
 
     stub_request(:get, url)
-      .with(query: { date_from: "2026-04-01", transaction_status: "BOOK" })
+      .with(query: { date_from: "2026-04-01", transaction_status: "BOOK", strategy: "longest" })
       .to_return(status: 400, body: error_body, headers: { "Content-Type" => "application/json" })
 
     stub_request(:get, url)
-      .with(query: { transaction_status: "BOOK" })
+      .with(query: { transaction_status: "BOOK", strategy: "longest" })
       .to_return(
         status: 200,
         body: { transactions: [ { entry_reference: "pko_tx_1" } ], continuation_key: nil }.to_json,

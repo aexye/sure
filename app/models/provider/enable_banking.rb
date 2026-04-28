@@ -167,6 +167,7 @@ class Provider::EnableBanking
     query_params[:date_from] = date_from.to_date.iso8601 if date_from
     query_params[:date_to] = date_to.to_date.iso8601 if date_to
     query_params[:continuation_key] = continuation_key if continuation_key
+    query_params[:strategy] = "longest" if date_from || date_to
 
     response = get_account_transactions_response(encoded_id, query_params, psu_headers)
 
@@ -174,7 +175,7 @@ class Provider::EnableBanking
   rescue EnableBankingError => e
     raise unless retry_without_transaction_date_range?(e, query_params)
 
-    query_params = query_params.except(:date_from, :date_to)
+    query_params = transaction_date_range_retry_query(query_params)
     response = get_account_transactions_response(encoded_id, query_params, psu_headers)
 
     handle_response(response)
@@ -204,6 +205,10 @@ class Provider::EnableBanking
           unsupported_transaction_date_criteria_error?(error) ||
           aspsp_error?(error)
         )
+    end
+
+    def transaction_date_range_retry_query(query_params)
+      query_params.except(:date_from, :date_to)
     end
 
     def unsupported_transaction_date_criteria_error?(error)
