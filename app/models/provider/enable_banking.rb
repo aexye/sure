@@ -168,11 +168,14 @@ class Provider::EnableBanking
     query_params[:date_to] = date_to.to_date.iso8601 if date_to
     query_params[:continuation_key] = continuation_key if continuation_key
 
-    response = self.class.get(
-      "#{BASE_URL}/accounts/#{encoded_id}/transactions",
-      headers: auth_headers.merge(safe_psu_headers(psu_headers)),
-      query: query_params.presence
-    )
+    response = get_account_transactions_response(encoded_id, query_params, psu_headers)
+
+    handle_response(response)
+  rescue EnableBankingError => e
+    raise unless unsupported_transaction_date_criteria_error?(e) && (query_params.key?(:date_from) || query_params.key?(:date_to))
+
+    query_params = query_params.except(:date_from, :date_to)
+    response = get_account_transactions_response(encoded_id, query_params, psu_headers)
 
     handle_response(response)
   rescue SocketError, Net::OpenTimeout, Net::ReadTimeout => e
@@ -183,6 +186,21 @@ class Provider::EnableBanking
 
     def safe_psu_headers(headers)
       headers.except("Authorization", :Authorization, "Accept", :Accept, "Content-Type", :"Content-Type")
+    end
+
+    def get_account_transactions_response(encoded_id, query_params, psu_headers)
+      self.class.get(
+        "#{BASE_URL}/accounts/#{encoded_id}/transactions",
+        headers: auth_headers.merge(safe_psu_headers(psu_headers)),
+        query: query_params.presence
+      )
+    rescue SocketError, Net::OpenTimeout, Net::ReadTimeout => e
+      raise EnableBankingError.new("Exception during GET request: #{e.message}", :request_failed)
+    end
+
+    def unsupported_transaction_date_criteria_error?(error)
+      error.error_type == :validation_error &&
+        error.message.match?(/Unsupported query criteria .*transactionDate(From|To)/i)
     end
 
     def extract_private_key(certificate_pem)
