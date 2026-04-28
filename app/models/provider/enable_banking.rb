@@ -172,7 +172,7 @@ class Provider::EnableBanking
 
     handle_response(response)
   rescue EnableBankingError => e
-    raise unless unsupported_transaction_date_criteria_error?(e) && (query_params.key?(:date_from) || query_params.key?(:date_to))
+    raise unless retry_without_transaction_date_range?(e, query_params)
 
     query_params = query_params.except(:date_from, :date_to)
     response = get_account_transactions_response(encoded_id, query_params, psu_headers)
@@ -198,9 +198,21 @@ class Provider::EnableBanking
       raise EnableBankingError.new("Exception during GET request: #{e.message}", :request_failed)
     end
 
+    def retry_without_transaction_date_range?(error, query_params)
+      (query_params.key?(:date_from) || query_params.key?(:date_to)) &&
+        (
+          unsupported_transaction_date_criteria_error?(error) ||
+          aspsp_error?(error)
+        )
+    end
+
     def unsupported_transaction_date_criteria_error?(error)
-      error.error_type == :validation_error &&
+      error.error_type.in?([ :validation_error, :bad_request ]) &&
         error.message.match?(/Unsupported query criteria .*transactionDate(From|To)/i)
+    end
+
+    def aspsp_error?(error)
+      error.error_type == :bad_request && error.message.match?(/ASPSP_ERROR/i)
     end
 
     def extract_private_key(certificate_pem)

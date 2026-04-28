@@ -43,4 +43,33 @@ class Provider::EnableBankingTest < ActiveSupport::TestCase
 
     assert_equal [ { entry_reference: "tx_1" } ], result[:transactions]
   end
+
+  test "retries transaction fetch without date range when ASPSP returns a generic bank error" do
+    account_id = "pko-account"
+    url = "https://api.enablebanking.com/accounts/#{CGI.escape(account_id)}/transactions"
+    error_body = {
+      code: "ASPSP_ERROR",
+      message: "ASPSP returned an error"
+    }.to_json
+
+    stub_request(:get, url)
+      .with(query: { date_from: "2026-04-01", transaction_status: "BOOK" })
+      .to_return(status: 400, body: error_body, headers: { "Content-Type" => "application/json" })
+
+    stub_request(:get, url)
+      .with(query: { transaction_status: "BOOK" })
+      .to_return(
+        status: 200,
+        body: { transactions: [ { entry_reference: "pko_tx_1" } ], continuation_key: nil }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+
+    result = @provider.get_account_transactions(
+      account_id: account_id,
+      date_from: Date.new(2026, 4, 1),
+      transaction_status: "BOOK"
+    )
+
+    assert_equal [ { entry_reference: "pko_tx_1" } ], result[:transactions]
+  end
 end
