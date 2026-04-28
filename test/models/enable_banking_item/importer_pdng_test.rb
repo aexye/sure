@@ -134,6 +134,105 @@ class EnableBankingItem::ImporterPdngTest < ActiveSupport::TestCase
     assert_equal "recent_ref", @enable_banking_account.raw_transactions_payload.first["entry_reference"]
   end
 
+  test "returns collected transactions when ASPSP fails after paginated results" do
+    first_page_tx = {
+      entry_reference: "page_1_ref",
+      booking_date: "2026-03-10",
+      transaction_amount: { amount: "30.00", currency: "EUR" },
+      credit_debit_indicator: "DBIT",
+      status: "BOOK"
+    }
+
+    @mock_provider.expects(:get_account_transactions)
+      .with(
+        account_id: @enable_banking_account.api_account_id,
+        date_from: Date.new(2026, 3, 1),
+        continuation_key: nil,
+        transaction_status: "BOOK",
+        psu_headers: {}
+      )
+      .returns(transactions: [ first_page_tx ], continuation_key: "next_page")
+
+    @mock_provider.expects(:get_account_transactions)
+      .with(
+        account_id: @enable_banking_account.api_account_id,
+        date_from: Date.new(2026, 3, 1),
+        continuation_key: "next_page",
+        transaction_status: "BOOK",
+        psu_headers: {}
+      )
+      .raises(Provider::EnableBanking::EnableBankingError.new("Bad request to Enable Banking API: {\"error\":\"ASPSP_ERROR\"}", :bad_request))
+
+    result = @importer.send(
+      :fetch_paginated_transactions,
+      @enable_banking_account,
+      start_date: Date.new(2026, 3, 1),
+      transaction_status: "BOOK",
+      psu_headers: {}
+    )
+
+    assert_equal [ first_page_tx ], result
+  end
+
+  test "ignores ASPSP errors while fetching pending transactions" do
+    book_tx = {
+      entry_reference: "book_ref",
+      booking_date: "2026-03-10",
+      transaction_amount: { amount: "30.00", currency: "EUR" },
+      credit_debit_indicator: "DBIT",
+      status: "BOOK"
+    }
+
+    @mock_provider.expects(:get_account_transactions)
+      .with(
+        account_id: @enable_banking_account.api_account_id,
+        date_from: Date.new(2026, 3, 1),
+        continuation_key: nil,
+        transaction_status: "BOOK",
+        psu_headers: {}
+      )
+      .returns(transactions: [ book_tx ], continuation_key: nil)
+
+    @mock_provider.expects(:get_account_transactions)
+      .with(
+        account_id: @enable_banking_account.api_account_id,
+        date_from: Date.new(2026, 3, 1),
+        continuation_key: nil,
+        transaction_status: "PDNG",
+        psu_headers: {}
+      )
+      .raises(Provider::EnableBanking::EnableBankingError.new("Bad request to Enable Banking API: {\"error\":\"ASPSP_ERROR\"}", :bad_request))
+
+    @importer.stubs(:include_pending?).returns(true)
+
+    result = @importer.send(:fetch_and_store_transactions, @enable_banking_account)
+
+    assert result[:success]
+    assert_equal [ "book_ref" ], @enable_banking_account.reload.raw_transactions_payload.map { |tx| tx["entry_reference"] }
+  end
+
+  test "raises ASPSP error when booked transactions fail before any page is collected" do
+    @mock_provider.expects(:get_account_transactions)
+      .with(
+        account_id: @enable_banking_account.api_account_id,
+        date_from: Date.new(2026, 3, 1),
+        continuation_key: nil,
+        transaction_status: "BOOK",
+        psu_headers: {}
+      )
+      .raises(Provider::EnableBanking::EnableBankingError.new("Bad request to Enable Banking API: {\"error\":\"ASPSP_ERROR\"}", :bad_request))
+
+    assert_raises Provider::EnableBanking::EnableBankingError do
+      @importer.send(
+        :fetch_paginated_transactions,
+        @enable_banking_account,
+        start_date: Date.new(2026, 3, 1),
+        transaction_status: "BOOK",
+        psu_headers: {}
+      )
+    end
+  end
+
   # --- PDNG transaction tagging ---
 
   test "tags PDNG transactions with pending: true in extra" do

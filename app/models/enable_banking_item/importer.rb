@@ -460,6 +460,16 @@ class EnableBankingItem::Importer
       # This ensures accounts with huge history don't lose all synced data.
       Rails.logger.warn(e.message)
       all_transactions
+    rescue Provider::EnableBanking::EnableBankingError => e
+      raise unless recoverable_transaction_pagination_error?(e, transaction_status, all_transactions)
+
+      return [] if transaction_status == "PDNG"
+
+      Rails.logger.warn(
+        "EnableBankingItem::Importer - Returning #{all_transactions.count} collected transaction(s) " \
+        "after #{transaction_status} pagination error for account #{enable_banking_account.uid}: #{e.message}"
+      )
+      all_transactions
     end
 
     def filter_transactions_by_date(transactions, start_date)
@@ -480,6 +490,14 @@ class EnableBankingItem::Importer
 
     def tag_as_pending(transactions)
       transactions.map { |tx| tx.merge(_pending: true) }
+    end
+
+    def recoverable_transaction_pagination_error?(error, transaction_status, all_transactions)
+      enable_banking_aspsp_error?(error) && (all_transactions.any? || transaction_status == "PDNG")
+    end
+
+    def enable_banking_aspsp_error?(error)
+      error.error_type == :bad_request && error.message.match?(/ASPSP_ERROR/i)
     end
 
     def find_enable_banking_account_by_hash(hash_value)
