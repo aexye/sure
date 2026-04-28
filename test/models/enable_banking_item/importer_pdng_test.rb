@@ -98,6 +98,42 @@ class EnableBankingItem::ImporterPdngTest < ActiveSupport::TestCase
     assert_equal 1, result.count
   end
 
+  test "does not send remote date filter for PKO while preserving local date filtering" do
+    @enable_banking_item.update!(aspsp_name: "PKO Bank Polski")
+    old_tx = {
+      entry_reference: "old_ref",
+      booking_date: "2024-01-15",
+      transaction_amount: { amount: "50.00", currency: "EUR" },
+      credit_debit_indicator: "DBIT",
+      status: "BOOK"
+    }
+    recent_tx = {
+      entry_reference: "recent_ref",
+      booking_date: "2026-03-10",
+      transaction_amount: { amount: "30.00", currency: "EUR" },
+      credit_debit_indicator: "DBIT",
+      status: "BOOK"
+    }
+
+    @mock_provider.expects(:get_account_transactions)
+      .with(
+        account_id: @enable_banking_account.api_account_id,
+        date_from: nil,
+        continuation_key: nil,
+        transaction_status: "BOOK",
+        psu_headers: {}
+      )
+      .returns(transactions: [ old_tx, recent_tx ], continuation_key: nil)
+
+    @importer.stubs(:include_pending?).returns(false)
+
+    result = @importer.send(:fetch_and_store_transactions, @enable_banking_account)
+
+    assert result[:success]
+    assert_equal 1, @enable_banking_account.reload.raw_transactions_payload.count
+    assert_equal "recent_ref", @enable_banking_account.raw_transactions_payload.first["entry_reference"]
+  end
+
   # --- PDNG transaction tagging ---
 
   test "tags PDNG transactions with pending: true in extra" do

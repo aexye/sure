@@ -229,13 +229,18 @@ class EnableBankingItem::Importer
       Setting.syncs_include_pending
     end
 
+    def remote_transaction_date_filter_enabled?
+      !enable_banking_item.aspsp_name.to_s.match?(/\APKO Bank Polski\z/i)
+    end
+
     def fetch_and_store_transactions(enable_banking_account)
       start_date = determine_sync_start_date(enable_banking_account)
+      remote_start_date = remote_transaction_date_filter_enabled? ? start_date : nil
       include_pending = include_pending?
 
       all_transactions = fetch_paginated_transactions(
         enable_banking_account,
-        start_date: start_date,
+        start_date: remote_start_date,
         transaction_status: "BOOK",
         psu_headers: enable_banking_item.build_psu_headers
       )
@@ -245,7 +250,7 @@ class EnableBankingItem::Importer
         # Also fetch pending transactions (visible for 1-3 days before they become BOOK) if setting is enabled
         pending_transactions = fetch_paginated_transactions(
           enable_banking_account,
-          start_date: start_date,
+          start_date: remote_start_date,
           transaction_status: "PDNG",
           psu_headers: enable_banking_item.build_psu_headers
         )
